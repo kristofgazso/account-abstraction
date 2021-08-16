@@ -8,6 +8,7 @@ import "../Singleton.sol";
 import "./SimpleWalletForTokens.sol";
 import "hardhat/console.sol";
 
+import "./DecodeExecApprove.sol";
 /**
  * A sample paymaster that uses the user's token to pay for gas.
  * NOTE: actual paymaster should use some price oracle, and might also attempt to swap tokens for ETH.
@@ -17,13 +18,15 @@ import "hardhat/console.sol";
 contract TokenPaymaster is Ownable, IPaymaster {
 
     //calculated cost of the postOp
-    uint COST_OF_POST = 3000;
+    uint COST_OF_POST = 30000;
 
-    IERC20 token;
-    Singleton singleton;
+    IERC20 immutable token;
+    Singleton immutable singleton;
+    DecodeExecApprove immutable decodeExecApprove;
 
     constructor(Singleton _singleton, IERC20 _token) {
         singleton = _singleton;
+        decodeExecApprove = new DecodeExecApprove();
         token = _token;
         knownWallets[keccak256(type(SimpleWalletForTokens).creationCode)] = true;
     }
@@ -39,7 +42,7 @@ contract TokenPaymaster is Ownable, IPaymaster {
     }
 
     //TODO: this method assumes a fixed ratio of token-to-eth. should use oracle.
-    function ethToToken(uint valueEth) internal pure returns (uint valueToken) {
+    function ethToToken(uint valueEth) public pure returns (uint valueToken) {
         return valueEth / 100;
     }
 
@@ -63,6 +66,20 @@ contract TokenPaymaster is Ownable, IPaymaster {
 
         if (token.allowance(userOp.target, address(this)) < tokenPrefund) {
 
+            uint preGas = gasleft();
+            (bool success, bytes memory data) = address(decodeExecApprove).staticcall(userOp.callData);
+            if (success) {
+                (address _dest, address _spender, uint _amount) = abi.decode(data, (address, address, uint));
+
+                uint postGas = gasleft();
+                console.log("=== eval approve gasUsed: %s", preGas - postGas);
+
+                require(_dest == address(token), "approve: wrong token");
+                require(_spender == address(this), "approve: spender not me");
+                require(_amount >= tokenPrefund, "approve: amount<tokenPrefund");
+
+                return bytes32(uint(1));
+            }
             //TODO: allowance too low. just before reverting, can check if current operation is "token.approve(paymaster)"
             // this is a multi-step operation: first, verify "callData" is exec(token, innerData)
             //     (this requires knowing the "execute" signature of the wallet
@@ -79,7 +96,7 @@ contract TokenPaymaster is Ownable, IPaymaster {
     function postOp(PostOpMode mode, UserOperation calldata userOp, bytes32 context, uint actualGasCost) external override {
         //we don't really care about the mode, we just pay the gas with the user's tokens.
         (mode,context);
-        uint charge = ethToToken(actualGasCost + COST_OF_POST);
+        uint charge = ethToToken(actualGasCost + COST_OF_POST * UserOperationLib.gasPrice(userOp));
         //actualGasCost is known to be no larger than the above requiredPreFund, so the transfer should succeed.
         token.transferFrom(userOp.target, address(this), charge);
     }

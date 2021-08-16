@@ -15,7 +15,7 @@ import {
   TokenPaymaster,
   TokenPaymaster__factory
 } from "../typechain";
-import {AddressZero, createWalletOwner, fund, getBalance, getTokenBalance} from "./testutils";
+import {AddressZero, createWalletOwner, fund, getBalance, getTokenBalance, tonumber} from "./testutils";
 import {fillAndSign} from "./UserOp";
 import {parseEther} from "ethers/lib/utils";
 import {UserOperation} from "./UserOperation";
@@ -69,10 +69,11 @@ describe("Singleton with paymaster", function () {
       // but first has to send a "token.approve()" transaction.
       // the paymaster should agree, but has to decode this "approval" transaction, to validate it
       // will eventually be able to get paid.
-      it.skip('wallet should pay for "approve" request in TST', async function () {
+      it.only('wallet should pay for "approve" request in TST', async function () {
         await tst.mint(wallet.address, parseEther('1'))
 
-        const approve = await tst.populateTransaction.approve(paymaster.address, BigNumber.from('0x'.padEnd(66, 'F')))
+        let approveValue = BigNumber.from('0x'.padEnd(66, 'F'));
+        const approve = await tst.populateTransaction.approve(paymaster.address, approveValue)
         const execApprove = await wallet.populateTransaction.exec(tst.address, approve.data!)
 
         const preTokenBalance = await tst.balanceOf(wallet.address)
@@ -85,9 +86,12 @@ describe("Singleton with paymaster", function () {
 
         const postTokenBalance = await tst.balanceOf(wallet.address)
         const logs = await singleton.queryFilter(singleton.filters.UserOperationEvent())
-        const tokenCost = preTokenBalance.sub(postTokenBalance).toNumber()
+        console.log('postOp revert reason',await singleton.queryFilter(singleton.filters.PaymasterPostOpFailed()))
+        const tokensPaid = preTokenBalance.sub(postTokenBalance).toNumber()
+        const actualCostInTokens = await paymaster.ethToToken(logs[0].args.actualGasCost).then(tonumber)
         //paymaster has fixed 100-to-1 ratio for token to eth..
-        expect(tokenCost).to.closeTo(logs[0].args.actualGasCost.toNumber() / 100, tokenCost / 1000)
+        expect(tokensPaid/actualCostInTokens).to.closeTo(1, 0.1,
+          `paid ${tokensPaid} actualCostInTokens ${actualCostInTokens}`)
       });
     })
 
