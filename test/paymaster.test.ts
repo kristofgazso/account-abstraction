@@ -69,7 +69,7 @@ describe("Singleton with paymaster", function () {
       // but first has to send a "token.approve()" transaction.
       // the paymaster should agree, but has to decode this "approval" transaction, to validate it
       // will eventually be able to get paid.
-      it.only('wallet should pay for "approve" request in TST', async function () {
+      it('wallet should pay for "approve" request in TST', async function () {
         await tst.mint(wallet.address, parseEther('1'))
 
         let approveValue = BigNumber.from('0x'.padEnd(66, 'F'));
@@ -89,8 +89,7 @@ describe("Singleton with paymaster", function () {
         console.log('postOp revert reason',await singleton.queryFilter(singleton.filters.PaymasterPostOpFailed()))
         const tokensPaid = preTokenBalance.sub(postTokenBalance).toNumber()
         const actualCostInTokens = await paymaster.ethToToken(logs[0].args.actualGasCost).then(tonumber)
-        //paymaster has fixed 100-to-1 ratio for token to eth..
-        expect(tokensPaid/actualCostInTokens).to.closeTo(1, 0.1,
+        expect(tokensPaid/actualCostInTokens).to.closeTo(1, 0.2,
           `paid ${tokensPaid} actualCostInTokens ${actualCostInTokens}`)
       });
     })

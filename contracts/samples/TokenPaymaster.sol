@@ -8,7 +8,8 @@ import "../Singleton.sol";
 import "./SimpleWalletForTokens.sol";
 import "hardhat/console.sol";
 
-import "./DecodeExecApprove.sol";
+import "./ExecLib.sol";
+import "hardhat/console.sol";
 /**
  * A sample paymaster that uses the user's token to pay for gas.
  * NOTE: actual paymaster should use some price oracle, and might also attempt to swap tokens for ETH.
@@ -22,13 +23,31 @@ contract TokenPaymaster is Ownable, IPaymaster {
 
     IERC20 immutable token;
     Singleton immutable singleton;
-    DecodeExecApprove immutable decodeExecApprove;
+
+    //known constructor that calls "approve"
+    mapping(bytes32 => bool) public knownWalletConstructor;
+
+    //known wallet runtime, that supports "exec"
+    //  (needed to allow payment of "approve" call)
+    mapping(bytes32 => bool) public knownWalletRuntime;
 
     constructor(Singleton _singleton, IERC20 _token) {
         singleton = _singleton;
-        decodeExecApprove = new DecodeExecApprove();
         token = _token;
-        knownWallets[keccak256(type(SimpleWalletForTokens).creationCode)] = true;
+        knownWalletConstructor[keccak256(type(SimpleWalletForTokens).creationCode)] = true;
+
+        knownWalletRuntime[keccak256(type(SimpleWalletForTokens).runtimeCode)] = true;
+        knownWalletRuntime[keccak256(type(SimpleWallet).runtimeCode)] = true;
+    }
+
+    function _onlyThroughSingleton() internal view {
+        console.log('sender %s singleton %s', msg.sender, address(singleton));
+        require(msg.sender == address(singleton) , "postOp: only through singleton");
+    }
+
+    modifier onlyThroughSingleton() {
+        _onlyThroughSingleton();
+        _;
     }
 
     //after successful transactions, this paymaster accumulates tokens.
@@ -46,30 +65,36 @@ contract TokenPaymaster is Ownable, IPaymaster {
         return valueEth / 100;
     }
 
-
-    mapping(bytes32 => bool) public knownWallets;
-
     // verify that the user has enough tokens.
     function payForOp(UserOperation calldata userOp) external view override returns (bytes32 context) {
         uint tokenPrefund = ethToToken(UserOperationLib.requiredPreFund(userOp));
 
+        address target = userOp.target;
         if (userOp.initCode.length != 0) {
             bytes32 bytecodeHash = keccak256(userOp.initCode);
-            require(knownWallets[bytecodeHash], "TokenPaymaster: unknown wallet constructor");
+            require(knownWalletConstructor[bytecodeHash], "TokenPaymaster: unknown wallet constructor");
             //TODO: must also whitelist init function (callData), since that what will call "token.approve(paymaster)"
             //no "allowance" check during creation (we trust known constructor/init function)
-            require(token.balanceOf(userOp.target) > tokenPrefund, "TokenPaymaster: no balance (pre-create)");
+            require(token.balanceOf(target) > tokenPrefund, "TokenPaymaster: no balance (pre-create)");
             return bytes32(uint(1));
         }
 
-        require(token.balanceOf(userOp.target) > tokenPrefund, "TokenPaymaster: no balance");
+        require(token.balanceOf(target) > tokenPrefund, "TokenPaymaster: no balance");
 
-        if (token.allowance(userOp.target, address(this)) < tokenPrefund) {
+        if (token.allowance(target, address(this)) < tokenPrefund) {
 
             uint preGas = gasleft();
-            (bool success, bytes memory data) = address(decodeExecApprove).staticcall(userOp.callData);
+
+            //can only trust the "exec" method of known wallet code.
+            bytes32 bytecodeHash;
+            assembly {
+                bytecodeHash := extcodehash(target)
+            }
+            require(knownWalletRuntime[bytecodeHash], "TokenPaymaster: unknown wallet");
+
+            (bool success, address _dest, bytes calldata params) = ExecLib.decodeExecMethod(userOp.callData, IERC20.approve.selector);
             if (success) {
-                (address _dest, address _spender, uint _amount) = abi.decode(data, (address, address, uint));
+                (address _spender, uint _amount) = abi.decode(params, (address,uint));
 
                 uint postGas = gasleft();
                 console.log("=== eval approve gasUsed: %s", preGas - postGas);
