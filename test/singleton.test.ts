@@ -1,5 +1,5 @@
 import {describe} from 'mocha'
-import {BigNumber, Wallet} from "ethers";
+import {BigNumber, ContractReceipt, Wallet} from "ethers";
 import {ethers} from "hardhat";
 import {expect} from "chai";
 import {
@@ -17,15 +17,18 @@ import {
   createWalletOwner,
   fund,
   checkForGeth,
-  rethrow, tostr, WalletConstructor, calcGasUsage
+  rethrow, tostr, WalletConstructor, calcGasUsage, objdump
 } from "./testutils";
 import {fillAndSign, ZeroUserOp} from "./UserOp";
 import {UserOperation} from "./UserOperation";
 import {PopulatedTransaction} from "ethers/lib/ethers";
+import exp from "constants";
 
 describe("Singleton", function () {
 
   let singleton: Singleton
+  let singletonView: Singleton
+
   let testUtil: TestUtil
   let walletOwner: Wallet
   let ethersSigner = ethers.provider.getSigner();
@@ -35,20 +38,19 @@ describe("Singleton", function () {
 
     await checkForGeth()
     testUtil = await new TestUtil__factory(ethersSigner).deploy()
-    singleton = await new Singleton__factory(ethersSigner).deploy()
+    singleton = await new Singleton__factory(ethersSigner).deploy(32000)
+    //static call must come from address zero, to validate it can only be called off-chain.
+    singletonView = singleton.connect(ethers.provider.getSigner(AddressZero))
     walletOwner = createWalletOwner()
     wallet = await new SimpleWallet__factory(ethersSigner).deploy(singleton.address, await walletOwner.getAddress())
     await fund(wallet)
   })
 
   describe('#simulateWalletValidation', () => {
-    let singletonView: Singleton
     const walletOwner1 = createWalletOwner()
     let wallet1: SimpleWallet
 
     before(async () => {
-      //static call must come from address zero, to validate it can only be called off-chain.
-      singletonView = singleton.connect(ethers.provider.getSigner(AddressZero))
       wallet1 = await new SimpleWallet__factory(ethersSigner).deploy(singleton.address, await walletOwner1.getAddress())
     })
     it('should fail on-chain', async () => {
@@ -243,8 +245,6 @@ describe("Singleton", function () {
         }, walletOwner1, singleton)
 
         // console.log('op=', {...op1, callData: op1.callData.length, initCode: op1.initCode.length})
-        const singletonView = singleton.connect(ethers.provider.getSigner(AddressZero))
-
 
         const op2 = await fillAndSign({
           callData: walletExecCounterFromSingleton.data,
@@ -276,5 +276,109 @@ describe("Singleton", function () {
         console.log('cost2=', cost2)
       })
     })
+    describe('batch of 10 account exec', () => {
+      /**
+       * attempt big batch.
+       */
+      let counter: TestCounter
+      let walletExecCounterFromSingleton: PopulatedTransaction
+      const redeemerAddress = Wallet.createRandom().address
+
+      before(async () => {
+        counter = await new TestCounter__factory(ethersSigner).deploy()
+        const count = await counter.populateTransaction.count()
+        const execCounterCount = await wallet.populateTransaction.exec(counter.address, count.data!)
+        walletExecCounterFromSingleton = await wallet.populateTransaction.execFromSingleton(execCounterCount.data!)
+      })
+
+      let wallets: { w: string, owner: Wallet }[] = []
+
+      it('batch of create', async () => {
+
+        let ops: UserOperation[] = []
+        let count = 0;
+        const maxTxGas = 12e6
+        let opsGasCollected = 0
+        while (++count) {
+          const walletOwner1 = createWalletOwner()
+          const wallet1 = await singleton.getAccountAddress(WalletConstructor(singleton.address, walletOwner1.address), 0)
+          await fund(wallet1, '0.5')
+          const op1 = await fillAndSign({
+            initCode: WalletConstructor(singleton.address, walletOwner1.address),
+            // callData: walletExecCounterFromSingleton.data,
+            maxPriorityFeePerGas: 1e9,
+            callGas: 1e5,
+            verificationGas: 1.3e6
+          }, walletOwner1, singleton)
+          // requests are the same, so estimate is the same too.
+          const estim = await singletonView.callStatic.simulateWalletValidation(op1, {gasPrice: 1e9})
+          const estim1 = await singletonView.simulatePaymasterValidation(op1, estim!, {gasPrice: 1e9})
+          const verificationGas = estim.add(estim1.gasUsedByPayForOp)
+          const txgas = verificationGas.add(op1.callGas).toNumber()
+
+          // console.log('colected so far', opsGasCollected, 'estim', verificationGas, 'max', maxTxGas)
+          if (opsGasCollected + txgas > maxTxGas) {
+            break;
+          }
+          opsGasCollected += txgas
+          // console.log('== estim=', estim1.gasUsedByPayForOp, estim, verificationGas)
+          ops.push(op1)
+          wallets.push({owner: walletOwner1, w: wallet1})
+        }
+
+        await handleOpsAndStats(ops, count)
+      })
+      it('batch of tx', async function () {
+        if (!wallets.length) {
+          this.skip()
+        }
+
+        let ops: UserOperation[] = []
+        for (let {w, owner} of wallets) {
+          const op1 = await fillAndSign({
+            target: w,
+            callData: walletExecCounterFromSingleton.data,
+            callGas: 1e5,
+            maxPriorityFeePerGas: 1e9,
+            verificationGas: 1.3e6
+          }, owner, singleton)
+          ops.push(op1)
+        }
+
+        await handleOpsAndStats(ops, ops.length)
+      })
+    })
+
+    async function handleOpsAndStats(ops: UserOperation[], count: number) {
+      const redeemerAddress = createWalletOwner().address
+      const sender = ethersSigner // ethers.provider.getSigner(5)
+      const senderPrebalance = await ethers.provider.getBalance(await sender.getAddress())
+
+      //for slack testing, we set TX priority same as UserOp
+      //(real miner may create tx with priorityFee=0, to avoid paying from the "sender" to coinbase)
+      const {maxPriorityFeePerGas} = ops[0]
+      const ret = await singleton.connect(sender).handleOps(ops, redeemerAddress, {gasLimit: 13e6, maxPriorityFeePerGas}).catch((rethrow())).then(r => r!.wait())
+
+      console.log('actual gas=', ret.gasUsed)
+      // console.log(ret.events!.map(e => ({ev: e.event, ...objdump(e.args!)})))
+
+      //note that in theory, each could can have different gasPrice (depends on its prio/max), but in our
+      // test they are all the same.
+      const {actualGasPrice} = ret.events![0].args!
+      const actualGasCost = ret.events!.map(x => x.args!.actualGasCost).reduce((sum, x) => sum.add(x))
+
+      const senderPaid = senderPrebalance.sub(await ethers.provider.getBalance(await sender.getAddress()))
+      let senderRedeemed = await ethers.provider.getBalance(redeemerAddress);
+
+      expect(senderRedeemed).to.equal(actualGasCost)
+      console.log('gp:', await ethers.provider.getGasPrice())
+      console.log('gasPrice:', actualGasPrice)
+      console.log('senderPaid=         ', senderPaid)
+      console.log('redeemed=           ', senderRedeemed)
+      console.log('slack=', (100 - senderPaid.mul(10000).div(senderRedeemed).toNumber() / 100).toFixed(2), '%')
+      let payDiff = senderPaid.sub(senderRedeemed).div(count)
+      const gasDiff = payDiff.div(actualGasPrice)
+      console.log('per-op gas overpaid:', gasDiff.toNumber(), 'singleton perOpOverhead=',await singleton.perOpOverhead())
+    }
   })
 })
