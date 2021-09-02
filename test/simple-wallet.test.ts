@@ -80,7 +80,7 @@ describe("SimpleWallet", function () {
     it('should pay', async () => {
 
       let prefund = await testUtil.prefund(userOp, {gasPrice: actualGasPrice});
-      expect(prefund).to.equal(expectedPay);
+      expect(prefund).to.be.gte(expectedPay);
       const postBalance = await getBalance(wallet.address)
       expect(preBalance - postBalance).to.eql(expectedPay)
     });

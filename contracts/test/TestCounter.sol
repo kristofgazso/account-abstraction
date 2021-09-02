@@ -11,4 +11,16 @@ contract TestCounter {
     function count() public {
         counters[msg.sender] = counters[msg.sender] + 1;
     }
+
+    //helper method to waste gas
+    // repeat - waste gas on writing storage in a loop
+    // junk - dynamic buffer to stress the function size.
+    mapping (uint=>uint) xxx;
+    uint offset;
+    function gasWaster(uint repeat, string calldata junk) external {
+        for (uint i=1; i<=repeat; i++ ) {
+            offset++;
+            xxx[offset] = i;
+        }
+    }
 }

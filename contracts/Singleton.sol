@@ -5,7 +5,6 @@ import "./StakeManager.sol";
 import "./UserOperation.sol";
 import "./IWallet.sol";
 import "./IPaymaster.sol";
-import "hardhat/console.sol";
 
 contract Singleton is StakeManager {
 
@@ -58,7 +57,7 @@ contract Singleton is StakeManager {
             valueFromPaymaster = _valueFromPaymaster;
         } catch {
             uint actualGas = preGas - gasleft() + preOpGas;
-            valueFromPaymaster = handlePostOp(IPaymaster.PostOpMode.postOpReverted, op, context, actualGas, prefund, false);
+            valueFromPaymaster = handlePostOp(IPaymaster.PostOpMode.postOpReverted, op, context, actualGas, prefund);
         }
         uint collected = address(this).balance - savedBalance + valueFromPaymaster;
 
@@ -100,8 +99,9 @@ contract Singleton is StakeManager {
                 valueFromPaymaster = _valueFromPaymaster;
             } catch {
                 uint actualGas = preGas - gasleft() + preOpGasi;
-                valueFromPaymaster = handlePostOp(IPaymaster.PostOpMode.postOpReverted, op, context, actualGas, prefundi, false);
+                valueFromPaymaster = handlePostOp(IPaymaster.PostOpMode.postOpReverted, op, context, actualGas, prefundi);
             }
+
             valueFromStake += valueFromPaymaster;
         }
 
@@ -110,19 +110,22 @@ contract Singleton is StakeManager {
         redeemer.transfer(collected);
     }
 
-    function internalHandleOp(UserOperation calldata op, bytes calldata context, uint preOpGas, uint prefund) external returns (uint valueFromPaymaster) {
+    function internalHandleOp( UserOperation calldata op, bytes calldata context, uint preOpGas, uint prefund) external returns (uint valueFromPaymaster) {
         uint preGas = gasleft();
         require(msg.sender == address(this));
 
+        IPaymaster.PostOpMode mode = IPaymaster.PostOpMode.opSucceeded;
+        if (op.callData.length > 0) {
 
-        (bool success,bytes memory result) = address(op.target).call{gas : op.callGas}(op.callData);
-        if (!success && result.length > 0) {
-            emit UserOperationRevertReason(result);
+            (bool success,bytes memory result) = address(op.target).call{gas : op.callGas}(op.callData);
+            if (!success && result.length > 0) {
+                emit UserOperationRevertReason(result);
+                mode = IPaymaster.PostOpMode.opReverted;
+            }
         }
-        IPaymaster.PostOpMode mode = success ? IPaymaster.PostOpMode.opSucceeded : IPaymaster.PostOpMode.opReverted;
 
         uint actualGas = preGas - gasleft() + preOpGas;
-        return handlePostOp(mode, op, context, actualGas, prefund, success);
+        return handlePostOp(mode, op, context, actualGas, prefund);
     }
 
     /**
@@ -263,7 +266,7 @@ contract Singleton is StakeManager {
         }
     }
 
-    function handlePostOp(IPaymaster.PostOpMode mode, UserOperation calldata op, bytes memory context, uint actualGas, uint prefund, bool success) private returns (uint valueFromPaymaster) {
+    function handlePostOp(IPaymaster.PostOpMode mode, UserOperation calldata op, bytes memory context, uint actualGas, uint prefund) private returns (uint valueFromPaymaster) {
         uint preGas = gasleft();
         uint gasPrice = UserOperationLib.gasPrice(op);
         uint actualGasCost = actualGas * gasPrice;
@@ -292,11 +295,19 @@ contract Singleton is StakeManager {
             stakes[op.paymaster].stake -= uint112(actualGasCost);
             valueFromPaymaster = actualGasCost;
         }
-        emit UserOperationEvent(op.target, op.paymaster, actualGasCost, gasPrice, success);
+        emit UserOperationEvent(op.target, op.paymaster, actualGasCost, gasPrice, mode == IPaymaster.PostOpMode.opSucceeded);
     }
 
     function isValidStake(UserOperation calldata op, uint requiredPreFund) internal view returns (bool) {
         return isPaymasterStaked(op.paymaster, PAYMASTER_STAKE + requiredPreFund);
+    }
+
+    function isContract(address addr) external view returns (bool) {
+        bytes32 hash;
+        assembly {
+            hash := extcodehash(addr)
+        }
+        return hash != bytes32(0);
     }
 }
 
