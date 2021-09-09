@@ -175,3 +175,21 @@ export function objdump(obj: { [key: string]: any }) {
       [key]: decodeRevertReason(obj[key].toString(), false)
     }), {})
 }
+
+export async function checkForBannedOps(txHash: string) {
+  const debugTx = async (hash: string) => ethers.provider.send('debug_traceTransaction', [hash, {
+    disableMemory: true,
+    disableStorage: true
+  }])
+
+  const tx = await debugTx(txHash)
+  let logs = tx.structLogs as { op: string; depth: number }[]
+  let opsStr = logs.map(log => log.op).join(' ')
+
+  //remove GAS followed by "call" (e.g. recover, or any other call from payForSelfOp)
+  const ops = opsStr.replace(/GAS (\w*CALL)/m, '$1').split(' ')
+
+  expect(ops).to.include('POP', 'not a valid ops list' + ops) //sanity
+  expect(ops.filter(op => op == 'BASEFEE').length).to.be.lte(1)
+  expect(ops.filter(op => op == 'GAS').length).to.be.eq(2)
+}

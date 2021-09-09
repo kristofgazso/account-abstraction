@@ -136,7 +136,7 @@ contract Singleton is StakeManager {
      */
     function simulateWalletValidation(UserOperation calldata userOp) external returns (uint gasUsedByPayForSelfOp){
         require(msg.sender == address(0), "must be called off-chain with from=zero-addr");
-        uint requiredPreFund = userOp.requiredPreFund(internalOverhead) + perOpOverhead;
+        uint requiredPreFund = userOp.requiredPreFund(internalOverhead + perOpOverhead);
         uint walletRequiredPrefund = userOp.hasPaymaster() ? 0 : requiredPreFund;
         (gasUsedByPayForSelfOp,) = _validateWalletPrepayment(0, userOp, walletRequiredPrefund);
     }
@@ -243,7 +243,7 @@ contract Singleton is StakeManager {
 
         uint preGas = gasleft();
         bool hasPaymaster = op.paymaster != address(0);
-        uint requiredPreFund = op.requiredPreFund(internalOverhead) + perOpOverhead;
+        uint requiredPreFund = op.requiredPreFund(internalOverhead + perOpOverhead);
         uint walletRequiredPrefund = hasPaymaster ? 0 : requiredPreFund;
         uint gasUsedByPayForSelfOp;
         (gasUsedByPayForSelfOp, prefund) = _validateWalletPrepayment(opIndex, op, walletRequiredPrefund);

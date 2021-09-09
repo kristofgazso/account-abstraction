@@ -1,6 +1,6 @@
 import './aa.init'
 import {describe} from 'mocha'
-import {BigNumber, ContractReceipt, Wallet} from "ethers";
+import {BigNumber, Wallet} from "ethers";
 import {expect} from "chai";
 import {
   SimpleWallet,
@@ -17,12 +17,11 @@ import {
   createWalletOwner,
   fund,
   checkForGeth,
-  rethrow, tostr, WalletConstructor, calcGasUsage, objdump, tonumber
+  rethrow, tostr, WalletConstructor, calcGasUsage, objdump, tonumber, checkForBannedOps
 } from "./testutils";
 import {fillAndSign, DefaultsForUserOp} from "./UserOp";
 import {UserOperation} from "./UserOperation";
 import {PopulatedTransaction} from "ethers/lib/ethers";
-import exp from "constants";
 import {ethers} from 'hardhat'
 
 describe("Singleton", function () {
@@ -78,6 +77,7 @@ describe("Singleton", function () {
       await expect(singletonView.callStatic.simulateWalletValidation(op1).catch(rethrow()))
         .to.revertedWith('target doesn\'t match create2 address')
     })
+
     it('should succeed for creating a wallet', async () => {
       const op1 = await fillAndSign({
         initCode: WalletConstructor(singleton.address, walletOwner1.address),
@@ -85,6 +85,20 @@ describe("Singleton", function () {
       await fund(op1.target)
       await singletonView.callStatic.simulateWalletValidation(op1).catch(rethrow())
     })
+
+    it('should not use banned ops during simulateWalletValidation', async () => {
+      const op1 = await fillAndSign({
+        initCode: WalletConstructor(singleton.address, walletOwner1.address),
+      }, walletOwner1, singleton)
+
+      await fund(AddressZero)
+      //we must create a real transaction to debug, and it must come from address zero:
+      await ethers.provider.send('hardhat_impersonateAccount', [AddressZero])
+      const ret = await singletonView.simulateWalletValidation(op1)
+
+      await checkForBannedOps(ret!.hash)
+    })
+
   })
 
   describe('without paymaster (account pays in eth)', () => {
@@ -173,7 +187,7 @@ describe("Singleton", function () {
           verificationGas: 2e6
         }, walletOwner, singleton)
 
-         expect(await ethers.provider.getBalance(op.target)).to.eq(0)
+        expect(await ethers.provider.getBalance(op.target)).to.eq(0)
 
         await expect(singleton.callStatic.handleOps([op], redeemerAddress, {
           gasLimit: 1e7
