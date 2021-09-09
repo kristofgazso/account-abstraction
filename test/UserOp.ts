@@ -1,6 +1,6 @@
 import {arrayify, defaultAbiCoder, keccak256} from "ethers/lib/utils";
 import {BigNumber, Contract, Signer, Wallet} from "ethers";
-import {AddressZero, HashZero} from "./testutils";
+import {AddressZero, HashZero, rethrow} from "./testutils";
 import {ecsign, toRpcSig, keccak256 as keccak256_buffer} from "ethereumjs-util";
 import {Singleton} from '../typechain'
 import assert from "assert";
@@ -65,7 +65,15 @@ export function signUserOp(op: UserOperation, signer: Wallet): UserOperation {
 }
 
 export function fillUserOp(op: Partial<UserOperation>, defaults = DefaultsForUserOp): UserOperation {
-  const filled = {...defaults, ...op}
+  const partial: any = {...op}
+  //we want "item:undefined" to be used from defaults, and not override defaults, so we must explicitly
+  // remove those so "merge" will succeed.
+  for (let key in partial) {
+    if (partial[key] == undefined) {
+      delete partial[key]
+    }
+  }
+  const filled = {...defaults, ...partial}
   return filled
 }
 
@@ -98,17 +106,15 @@ export async function fillAndSign(op: Partial<UserOperation>, signer: Wallet | S
   if (op1.nonce == null) {
     if (provider == null) throw new Error('must have singleton to autofill nonce')
     const c = new Contract(op.target!, ['function nonce() view returns(address)'], provider)
-    op1.nonce = await c.nonce()
+    op1.nonce = await c.nonce().catch(rethrow())
   }
   if (op1.callGas == null && op.callData != null) {
     if (provider == null) throw new Error('must have singleton for callGas estimate')
-    console.log('fill estim')
     const gasEtimated = await provider.estimateGas({
       from: singleton?.address,
       to: op1.target,
       data: op1.callData
     })
-    console.log('after esteem')
 
     // console.log('estim', op1.target,'len=', op1.callData!.length, 'res=', gasEtimated)
     //estimateGas assumes direct call from singleton. add wrapper cost.
@@ -119,15 +125,17 @@ export async function fillAndSign(op: Partial<UserOperation>, signer: Wallet | S
     const block = await provider.getBlock('latest');
     op1.maxFeePerGas = block.baseFeePerGas!.add(op1.maxPriorityFeePerGas ?? DefaultsForUserOp.maxPriorityFeePerGas)
   }
+  //TODO: this is exactly what fillUserOp below should do - but it doesn't.
+  // adding this manually
+  if (op1.maxPriorityFeePerGas == undefined) {
+    op1.maxPriorityFeePerGas = DefaultsForUserOp.maxPriorityFeePerGas
+  }
   let op2 = fillUserOp(op1);
-  if ((signer as Wallet).privateKey == null) {
-    let packed = packUserOp(op2);
-    let message = Buffer.from(arrayify(keccak256(packed)));
-    return {
-      ...op2,
-      signature: await signer.signMessage(message)
-    }
-  } else {
-    return signUserOp(op2, signer as Wallet)
+
+  let packed = packUserOp(op2);
+  let message = Buffer.from(arrayify(keccak256(packed)));
+  return {
+    ...op2,
+    signature: await signer.signMessage(message)
   }
 }

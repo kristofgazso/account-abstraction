@@ -17,7 +17,7 @@ contract TestCounter {
     // junk - dynamic buffer to stress the function size.
     mapping (uint=>uint) xxx;
     uint offset;
-    function gasWaster(uint repeat, string calldata junk) external {
+    function gasWaster(uint repeat, string calldata /*junk*/) external {
         for (uint i=1; i<=repeat; i++ ) {
             offset++;
             xxx[offset] = i;

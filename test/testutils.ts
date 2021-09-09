@@ -20,7 +20,7 @@ export function tonumber(x: any): number {
   try {
     return parseFloat(x.toString())
   } catch (e) {
-    console.log('=== failed to parseFloat:', x, e.message)
+    console.log('=== failed to parseFloat:', x, (e as any).message)
     return NaN
   }
 }
@@ -113,7 +113,6 @@ export function rethrow(): (e: Error) => void {
     } else {
       message = e.message
     }
-    throw new Error(message)
     const err = new Error(message)
     err.stack = 'Error: ' + message + '\n' + stack
     throw err

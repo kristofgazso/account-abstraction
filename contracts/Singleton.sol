@@ -20,7 +20,7 @@ contract Singleton is StakeManager {
     uint public constant internalOverhead = 100000; //TODO: to be removed.
 
     event UserOperationEvent(address indexed account, address indexed paymaster, uint actualGasCost, uint actualGasPrice, bool success);
-    event UserOperationRevertReason(bytes revertReason);
+    event UserOperationRevertReason(address indexed account, bytes revertReason);
 
     event PaymasterPostOpFailed(address paymaster, address target, bytes reason);
 
@@ -110,7 +110,7 @@ contract Singleton is StakeManager {
         redeemer.transfer(collected);
     }
 
-    function internalHandleOp( UserOperation calldata op, bytes calldata context, uint preOpGas, uint prefund) external returns (uint valueFromPaymaster) {
+    function internalHandleOp(UserOperation calldata op, bytes calldata context, uint preOpGas, uint prefund) external returns (uint valueFromPaymaster) {
         uint preGas = gasleft();
         require(msg.sender == address(this));
 
@@ -119,7 +119,7 @@ contract Singleton is StakeManager {
 
             (bool success,bytes memory result) = address(op.target).call{gas : op.callGas}(op.callData);
             if (!success && result.length > 0) {
-                emit UserOperationRevertReason(result);
+                emit UserOperationRevertReason(op.target, result);
                 mode = IPaymaster.PostOpMode.opReverted;
             }
         }
@@ -290,7 +290,8 @@ contract Singleton is StakeManager {
                 }
             }
             //paymaster pays for full gas, including for postOp (and revert event)
-            actualGasCost += (preGas - gasleft()) * gasPrice;
+            actualGas += preGas - gasleft();
+            actualGasCost = actualGas * gasPrice;
             //paymaster balance known to be high enough, and to be locked for this block
             stakes[op.paymaster].stake -= uint112(actualGasCost);
             valueFromPaymaster = actualGasCost;
@@ -302,7 +303,7 @@ contract Singleton is StakeManager {
         return isPaymasterStaked(op.paymaster, PAYMASTER_STAKE + requiredPreFund);
     }
 
-    function isContract(address addr) external view returns (bool) {
+    function isContractDeployed(address addr) external view returns (bool) {
         bytes32 hash;
         assembly {
             hash := extcodehash(addr)
