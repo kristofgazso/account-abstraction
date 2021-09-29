@@ -35,7 +35,7 @@ contract TokenPaymaster is Ownable, ERC20, IPaymaster {
 
     //owner should call and put eth into it.
     function addStake() external payable {
-        singleton.addStake{value : msg.value}();
+        singleton.addStake{value : msg.value}(singleton.unstakeDelayBlocks());
     }
 
     //TODO: this method assumes a fixed ratio of token-to-eth. should use oracle.

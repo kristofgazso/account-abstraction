@@ -8,6 +8,7 @@ export interface UserOperation {
   callData: typ.bytes
   callGas: typ.uint
   verificationGas: typ.uint
+  preVerificationGas: typ.uint
   maxFeePerGas: typ.uint
   maxPriorityFeePerGas: typ.uint
   paymaster: typ.address

@@ -11,6 +11,7 @@ import "hardhat/console.sol";
         bytes callData;
         uint callGas;
         uint verificationGas;
+        uint preVerificationGas;
         uint maxFeePerGas;
         uint maxPriorityFeePerGas;
         address paymaster;
@@ -30,7 +31,7 @@ library UserOperationLib {
 
     function requiredGas(UserOperation calldata userOp) internal pure returns (uint) {
     unchecked {
-        return userOp.callGas + userOp.verificationGas;
+        return userOp.callGas + userOp.verificationGas + userOp.preVerificationGas;
     }
     }
 
@@ -51,6 +52,7 @@ library UserOperationLib {
             keccak256(userOp.callData),
             userOp.callGas,
             userOp.verificationGas,
+            userOp.preVerificationGas,
             userOp.maxFeePerGas,
             userOp.maxPriorityFeePerGas,
             userOp.paymaster,

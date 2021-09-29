@@ -3,6 +3,7 @@ pragma solidity ^0.8.7;
 
 import "../IWallet.sol";
 import "hardhat/console.sol";
+import "../Singleton.sol";
 
 //minimal wallet
 // this is sample minimal wallet.
@@ -12,13 +13,13 @@ contract SimpleWallet is IWallet {
     using UserOperationLib for UserOperation;
     uint public nonce;
     address public owner;
-    address public singleton;
+    Singleton public singleton;
 
-    event SingletonChanged(address oldSingleton, address newSingleton);
+    event SingletonChanged(Singleton oldSingleton, Singleton newSingleton);
 
     receive() external payable {}
 
-    constructor(address _singleton, address _owner) {
+    constructor(Singleton _singleton, address _owner) {
         singleton = _singleton;
         owner = _owner;
     }
@@ -41,13 +42,13 @@ contract SimpleWallet is IWallet {
         _call(dest, func);
     }
 
-    function updateSingleton(address _singleton) external onlyOwner {
+    function updateSingleton(Singleton _singleton) external onlyOwner {
         emit SingletonChanged(singleton, _singleton);
         singleton = _singleton;
     }
 
     function payForSelfOp(UserOperation calldata userOp, uint requiredPrefund) external override {
-        require(msg.sender == singleton, "wallet: not from Singleton");
+        require(msg.sender == address(singleton), "wallet: not from Singleton");
         _validateSignature(userOp);
         _validateAndIncrementNonce(userOp);
 
@@ -60,7 +61,7 @@ contract SimpleWallet is IWallet {
 
     //called by singleton, only after payForSelfOp succeeded.
     function execFromSingleton(bytes calldata func) external override {
-        require(msg.sender == singleton, "execFromSingleton: only from singleton");
+        require(msg.sender == address (singleton), "execFromSingleton: only from singleton");
         _call(address(this), func);
     }
 
@@ -88,5 +89,13 @@ contract SimpleWallet is IWallet {
         (bytes32 r, bytes32 s) = abi.decode(userOp.signature, (bytes32, bytes32));
         uint8 v = uint8(userOp.signature[64]);
         require(owner == ecrecover(hash, v, r, s), "wallet: wrong signature");
+    }
+
+    function addDeposit() public payable {
+        singleton.addDeposit{value : msg.value}();
+    }
+
+    function withdrawDeposit(address payable withdrawAddress) public {
+        singleton.withdrawStake(withdrawAddress);
     }
 }

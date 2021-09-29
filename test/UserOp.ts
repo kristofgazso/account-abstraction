@@ -1,12 +1,39 @@
 import {arrayify, defaultAbiCoder, keccak256} from "ethers/lib/utils";
 import {BigNumber, Contract, Signer, Wallet} from "ethers";
-import {AddressZero, HashZero, rethrow} from "./testutils";
+import {AddressZero, callDataCost, rethrow} from "./testutils";
 import {ecsign, toRpcSig, keccak256 as keccak256_buffer} from "ethereumjs-util";
 import {Singleton} from '../typechain'
-import assert from "assert";
 import {UserOperation} from "./UserOperation";
 
-export function packUserOp(op: UserOperation): string {
+//encode UserOperation
+// hashBytes - true to encode for calculating signature (keccak each "bytes" field first)
+//    false to leave as-is (for packed gas calculation)
+function encode(typevalues: { type: string, val: any }[], hashBytes: boolean) {
+
+  const types = typevalues.map(typevalue => typevalue.type == 'bytes' && hashBytes ? 'bytes32' : typevalue.type)
+  const values = typevalues.map((typevalue) => typevalue.type == 'bytes' && hashBytes ? keccak256(typevalue.val) : typevalue.val)
+  return defaultAbiCoder.encode(types, values)
+}
+
+
+export function packUserOp(op: UserOperation, hashBytes = true): string {
+  return encode([
+    {type: 'address', val: op.target},
+    {type: 'uint256', val: op.nonce},
+    {type: 'bytes', val: op.initCode},
+    {type: 'bytes', val: op.callData},
+    {type: 'uint256', val: op.callGas},
+    {type: 'uint256', val: op.verificationGas},
+    {type: 'uint256', val: op.preVerificationGas},
+    {type: 'uint256', val: op.maxFeePerGas},
+    {type: 'uint256', val: op.maxPriorityFeePerGas},
+    {type: 'address', val: op.paymaster},
+    {type: 'bytes', val: op.paymasterData}
+  ], hashBytes)
+}
+
+
+export function packUserOp1(op: UserOperation): string {
   return defaultAbiCoder.encode([
     'address', // target
     'uint256', // nonce
@@ -14,6 +41,7 @@ export function packUserOp(op: UserOperation): string {
     'bytes32', // callData
     'uint256', // callGas
     'uint', // verificationGas
+    'uint', // preVerificationGas
     'uint256', // maxFeePerGas
     'uint256', // maxPriorityFeePerGas
     'address', // paymaster
@@ -25,6 +53,7 @@ export function packUserOp(op: UserOperation): string {
     keccak256(op.callData),
     op.callGas,
     op.verificationGas,
+    op.preVerificationGas,
     op.maxFeePerGas,
     op.maxPriorityFeePerGas,
     op.paymaster,
@@ -39,6 +68,7 @@ export const DefaultsForUserOp: UserOperation = {
   callData: '0x',
   callGas: 0,
   verificationGas: 100000,  //default verification gas. will add create2 cost (3200+200*length) if initCode exists
+  preVerificationGas: 0,
   maxFeePerGas: 0,
   maxPriorityFeePerGas: 1e9,
   paymaster: AddressZero,
@@ -131,6 +161,11 @@ export async function fillAndSign(op: Partial<UserOperation>, signer: Wallet | S
     op1.maxPriorityFeePerGas = DefaultsForUserOp.maxPriorityFeePerGas
   }
   let op2 = fillUserOp(op1);
+  if (op2.preVerificationGas.toString() == '0') {
+
+    //TODO: we don't add overhead, which is ~21000 for a single TX, but much lower in a batch.
+    op2.preVerificationGas = callDataCost(packUserOp(op2, false))
+  }
 
   let packed = packUserOp(op2);
   let message = Buffer.from(arrayify(keccak256(packed)));

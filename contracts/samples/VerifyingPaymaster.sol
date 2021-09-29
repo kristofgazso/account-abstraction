@@ -26,7 +26,7 @@ contract VerifyingPaymaster is IPaymaster {
     }
 
     function addStake() external payable {
-        singleton.addStake{value : msg.value}();
+        singleton.addStake{value : msg.value}(singleton.unstakeDelayBlocks());
     }
 
     // verify our external signer signed this request.
