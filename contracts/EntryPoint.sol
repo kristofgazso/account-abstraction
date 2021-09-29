@@ -26,7 +26,7 @@ contract EntryPoint is StakeManager {
     //handleOps reverts with this error struct, to mark the offending op
     // NOTE: if simulateOp passes successfully, there should be no reason for handleOps to fail on it.
     // @param opIndex - index into the array of ops to the failed one (in simulateOp, this is always zero)
-    // @param paymaster - if paymaster.verifyPaymasterUserOp fails, this will be the paymaster's address. if verifyUserOp failed,
+    // @param paymaster - if paymaster.payForOp fails, this will be the paymaster's address. if payForSelfOp failed,
     //      this value will be zero (since it failed before accessing the paymaster)
     // @param reason - revert reason
     //  only to aid troubleshooting of wallet/paymaster reverts
@@ -120,7 +120,7 @@ contract EntryPoint is StakeManager {
         if (op.callData.length > 0) {
 
             (bool success,bytes memory result) = address(op.sender).call{gas : op.callGas}(op.callData);
-            if (!success) {
+            if (!success && result.length > 0) {
                 emit UserOperationRevertReason(op.sender, result);
                 mode = IPaymaster.PostOpMode.opReverted;
             }
@@ -177,9 +177,9 @@ contract EntryPoint is StakeManager {
         }
     }
 
-    // get the sender address, or use "create2" to create it.
+    // get the target address, or use "create2" to create it.
     // note that the gas allocation for this creation is deterministic (by the size of callData),
-    // so it is not checked on-chain, and adds to the gas used by verifyUserOp
+    // so it is not checked on-chain, and adds to the gas used by payForSelfOp
     function _createSenderIfNeeded(UserOperation calldata op) internal {
         if (op.initCode.length != 0) {
             //its a create operation. run the create2
@@ -208,7 +208,7 @@ contract EntryPoint is StakeManager {
         return address(uint160(uint256(hash)));
     }
 
-    //call wallet.verifyUserOp, and validate that it paid as needed.
+    //call wallet.payForSelfOp, and validate that it paid as needed.
     // return actual value sent from wallet to "this"
     function _validateWalletPrepayment(uint opIndex, UserOperation calldata op, uint walletRequiredPrefund, PaymentMode paymentMode) internal returns (uint gasUsedByPayForSelfOp, uint prefund) {
         uint preGas = gasleft();
@@ -244,7 +244,7 @@ contract EntryPoint is StakeManager {
         gasUsedByPayForSelfOp = preGas - gasleft();
     }
 
-    //validate paymaster.verifyPaymasterUserOp
+    //validate paymaster.payForOp
     function _validatePaymasterPrepayment(uint opIndex, UserOperation calldata op, uint requiredPreFund, uint gasUsedByPayForSelfOp) internal view returns (bytes memory context, uint gasUsedByPayForOp) {
         uint preGas = gasleft();
         if (!isValidPaymasterStake(op, requiredPreFund)) {
@@ -294,7 +294,6 @@ contract EntryPoint is StakeManager {
         uint actualGasCost = actualGas * gasPrice;
         if (paymentMode != PaymentMode.paymasterStake) {
             if (prefund < actualGasCost) {
-                //TODO: should not happen.
                 revert ("fatal: prefund below actualGasCost");
             }
             uint refund = prefund - actualGasCost;
@@ -302,11 +301,10 @@ contract EntryPoint is StakeManager {
                 stakes[op.sender].stake += uint96(refund);
                 valueFromStake = actualGasCost;
             } else {
-
-                //NOTE: deliberately ignoring revert: wallet should accept refund.
+            //NOTE: deliberately ignoring revert: wallet should accept refund.
                 bool sendOk = payable(op.sender).send(refund);
-                (sendOk);
-                //charged wallet directly.
+            (sendOk);
+            //charged wallet directly.
                 valueFromStake = 0;
             }
         } else {

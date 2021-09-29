@@ -19,7 +19,7 @@ import {
   checkForGeth,
   rethrow, WalletConstructor, tonumber, callDataCost
 } from "./testutils";
-import {fillAndSign, packUserOp} from "./UserOp";
+import {fillAndSign} from "./UserOp";
 import {UserOperation} from "./UserOperation";
 import {PopulatedTransaction} from "ethers/lib/ethers";
 import {ethers} from 'hardhat'
@@ -92,7 +92,7 @@ describe("Batch gas testing", function () {
           await fund(wallet1, '0.5')
           const op1 = await fillAndSign({
             initCode: WalletConstructor(entryPoint.address, walletOwner1.address),
-            // callData: walletExecCounterFromEntryPoint.data,
+            // callData: walletExecCounterFromSingleton.data,
             maxPriorityFeePerGas: 1e9,
           }, walletOwner1, entryPoint)
           // requests are the same, so estimate is the same too.
@@ -217,10 +217,10 @@ describe("Batch gas testing", function () {
 
     //data cost of entire bundle
     const entireTxDataCost = callDataCost(entireTxEncoded)
-    //the 'handleOp' function has "userOp" as first parameter..
+    //data cost of a single op in the bundle:
     const type = Object.values(entryPoint.interface.functions).find(f => f.name == 'handleOp')!.inputs[0]
     const opEncoded = defaultAbiCoder.encode([type], [ops[0]])
-    // defaultAbiCoder.encode([opEncoding], [ops[0]])
+
     const opDataCost = callDataCost(opEncoded)
     console.log('== entire tx data cost=', entireTxDataCost, 'len=', entireTxEncoded.length, 'op data cost=', opDataCost, 'len=',opEncoded.length / 2)
     console.log('== per-op overhead:', entireTxDataCost-(opDataCost*count), 'count=', count)

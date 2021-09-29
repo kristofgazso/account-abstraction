@@ -1,13 +1,11 @@
 import {arrayify, defaultAbiCoder, keccak256} from "ethers/lib/utils";
 import {BigNumber, Contract, Signer, Wallet} from "ethers";
-import {AddressZero, callDataCost, rethrow} from "./testutils";
+import {AddressZero, callDataCost, HashZero, rethrow} from "./testutils";
 import {ecsign, toRpcSig, keccak256 as keccak256_buffer} from "ethereumjs-util";
 import {EntryPoint} from '../typechain'
+import assert from "assert";
 import {UserOperation} from "./UserOperation";
 
-//encode UserOperation
-// hashBytes - true to encode for calculating signature (keccak each "bytes" field first)
-//    false to leave as-is (for packed gas calculation)
 function encode(typevalues: { type: string, val: any }[], hashBytes: boolean) {
 
   const types = typevalues.map(typevalue => typevalue.type == 'bytes' && hashBytes ? 'bytes32' : typevalue.type)
@@ -35,7 +33,7 @@ export function packUserOp(op: UserOperation, hashBytes = true): string {
 
 export function packUserOp1(op: UserOperation): string {
   return defaultAbiCoder.encode([
-    'address', // sender
+    'address', // target
     'uint256', // nonce
     'bytes32', // initCode
     'bytes32', // callData
@@ -68,7 +66,7 @@ export const DefaultsForUserOp: UserOperation = {
   callData: '0x',
   callGas: 0,
   verificationGas: 100000,  //default verification gas. will add create2 cost (3200+200*length) if initCode exists
-  preVerificationGas: 0,
+  preVerificationGas: 21000,  //should also cover calldata cost.
   maxFeePerGas: 0,
   maxPriorityFeePerGas: 1e9,
   paymaster: AddressZero,
@@ -108,17 +106,17 @@ export function fillUserOp(op: Partial<UserOperation>, defaults = DefaultsForUse
 }
 
 //helper to fill structure:
-// - default callGas to estimate call from entryPoint to wallet (TODO: add overhead)
+// - default callGas to estimate call from singleton to wallet (TODO: add overhead)
 // if there is initCode:
 //  - default nonce (used as salt) to zero
-//  - calculate sender using getAccountAddress
+//  - calculate target using getAccountAddress
 //  - default verificationGas to create2 cost + 100000
 // no initCode:
 //  - update nonce from wallet.nonce()
-//entryPoint param is only required to fill in "sender address when specifying "initCode"
+//singleton param is only required to fill in "target address when specifying "initCode"
 //nonce: assume contract as "nonce()" function, and fill in.
-// sender - only in case of construction: fill sender from initCode.
-// callGas: VERY crude estimation (by estimating call to wallet, and add rough entryPoint overhead
+// target - only in case of construction: fill target from initCode.
+// callGas: VERY crude estimation (by estimating call to wallet, and add rough singleton overhead
 // verificationGas: hard-code default at 100k. should add "create2" cost
 export async function fillAndSign(op: Partial<UserOperation>, signer: Wallet | Signer, entryPoint?: EntryPoint): Promise<UserOperation> {
   let op1 = {...op}
@@ -146,8 +144,8 @@ export async function fillAndSign(op: Partial<UserOperation>, signer: Wallet | S
       data: op1.callData
     })
 
-    // console.log('estim', op1.sender,'len=', op1.callData!.length, 'res=', gasEtimated)
-    //estimateGas assumes direct call from entryPoint. add wrapper cost.
+    // console.log('estim', op1.target,'len=', op1.callData!.length, 'res=', gasEtimated)
+    //estimateGas assumes direct call from singleton. add wrapper cost.
     op1.callGas = gasEtimated //.add(55000)
   }
   if (op1.maxFeePerGas == null) {

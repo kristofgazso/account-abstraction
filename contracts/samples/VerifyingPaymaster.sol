@@ -46,7 +46,7 @@ contract VerifyingPaymaster is IPaymaster {
     }
 
     function postOp(PostOpMode, bytes calldata, uint) external pure override {
-        //should never get called. returned "0" from verifyPaymasterUserOp
+        //should never get called. returned "0" from payForOp
         revert();
     }
 }

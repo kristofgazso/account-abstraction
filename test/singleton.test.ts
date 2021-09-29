@@ -184,7 +184,6 @@ describe("EntryPoint", function () {
         expect(await getBalance(wallet.address)).to.equal(1e18)
       })
     })
-
   })
   describe('#simulateWalletValidation', () => {
     const walletOwner1 = createWalletOwner()
@@ -266,7 +265,7 @@ describe("EntryPoint", function () {
         //for estimateGas, must specify maxFeePerGas, otherwise our gas check fails
         console.log('  == est gas=', await entryPoint.estimateGas.handleOps([op], redeemerAddress, {maxFeePerGas: 1e9}).then(tostr))
 
-        //must specify at least one of maxFeePerGas, gasLimit
+        //must specify at least on of maxFeePerGas, gasLimit
         // (gasLimit, to prevent estimateGas to fail on missing maxFeePerGas, see above..)
         const rcpt = await entryPoint.handleOps([op], redeemerAddress, {
           maxFeePerGas: 1e9,
@@ -404,7 +403,7 @@ describe("EntryPoint", function () {
           gasLimit: 1e7
         })).to.revertedWith('didn\'t pay prefund')
 
-        // await expect(await ethers.provider.getCode(op.sender).then(x => x.length)).to.equal(2, "wallet exists before creation")
+        // await expect(await ethers.provider.getCode(op.target).then(x => x.length)).to.equal(2, "wallet exists before creation")
       });
 
       it('should succeed to create account after prefund', async () => {

@@ -11,6 +11,5 @@ interface IWallet {
     // @note if requiredPrefund is zero, the wallet MUST NOT send anything (the paymaster pays)
     function verifyUserOp(UserOperation calldata userOp, uint requiredPrefund) external;
 
-    //called by entryPoint, only after verifyUserOp succeeded.
-    function execFromEntryPoint(bytes calldata func) external;
+    //called by singleton, only after payForSelfOp succeeded.
 }
