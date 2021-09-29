@@ -2,7 +2,7 @@ import * as typ from "./solidityTypes";
 
 export interface UserOperation {
 
-  target: typ.address
+  sender: typ.address
   nonce: typ.uint256
   initCode: typ.bytes
   callData: typ.bytes
