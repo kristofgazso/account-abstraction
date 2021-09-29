@@ -33,7 +33,7 @@ export function packUserOp(op: UserOperation, hashBytes = true): string {
 
 export function packUserOp1(op: UserOperation): string {
   return defaultAbiCoder.encode([
-    'address', // target
+    'address', // sender
     'uint256', // nonce
     'bytes32', // initCode
     'bytes32', // callData
@@ -106,17 +106,17 @@ export function fillUserOp(op: Partial<UserOperation>, defaults = DefaultsForUse
 }
 
 //helper to fill structure:
-// - default callGas to estimate call from singleton to wallet (TODO: add overhead)
+// - default callGas to estimate call from entryPoint to wallet (TODO: add overhead)
 // if there is initCode:
 //  - default nonce (used as salt) to zero
-//  - calculate target using getAccountAddress
+//  - calculate sender using getAccountAddress
 //  - default verificationGas to create2 cost + 100000
 // no initCode:
 //  - update nonce from wallet.nonce()
-//singleton param is only required to fill in "target address when specifying "initCode"
+//entryPoint param is only required to fill in "sender address when specifying "initCode"
 //nonce: assume contract as "nonce()" function, and fill in.
-// target - only in case of construction: fill target from initCode.
-// callGas: VERY crude estimation (by estimating call to wallet, and add rough singleton overhead
+// sender - only in case of construction: fill sender from initCode.
+// callGas: VERY crude estimation (by estimating call to wallet, and add rough entryPoint overhead
 // verificationGas: hard-code default at 100k. should add "create2" cost
 export async function fillAndSign(op: Partial<UserOperation>, signer: Wallet | Signer, entryPoint?: EntryPoint): Promise<UserOperation> {
   let op1 = {...op}
@@ -144,8 +144,8 @@ export async function fillAndSign(op: Partial<UserOperation>, signer: Wallet | S
       data: op1.callData
     })
 
-    // console.log('estim', op1.target,'len=', op1.callData!.length, 'res=', gasEtimated)
-    //estimateGas assumes direct call from singleton. add wrapper cost.
+    // console.log('estim', op1.sender,'len=', op1.callData!.length, 'res=', gasEtimated)
+    //estimateGas assumes direct call from entryPoint. add wrapper cost.
     op1.callGas = gasEtimated //.add(55000)
   }
   if (op1.maxFeePerGas == null) {

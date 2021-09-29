@@ -3,7 +3,6 @@ pragma solidity ^0.8.7;
 
 import "../IWallet.sol";
 import "hardhat/console.sol";
-import "../EntryPoint.sol";
 
 //minimal wallet
 // this is sample minimal wallet.
