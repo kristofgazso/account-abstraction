@@ -93,8 +93,8 @@ contract StakeManager {
         emit StakeWithdrawn(msg.sender, withdrawAddress, amount);
     }
 
-
-    function isStaked(address paymaster, uint requiredStake) public view returns (bool) {
-        return stakes[paymaster].stake >= requiredStake;
+    function isStaked(address paymaster, uint requiredStake, uint requiredDelayBlocks) public view returns (bool) {
+        StakeInfo memory stakeInfo = stakes[paymaster];
+        return stakeInfo.stake >= requiredStake && stakeInfo.unstakeDelayBlocks >= requiredDelayBlocks;
     }
 }

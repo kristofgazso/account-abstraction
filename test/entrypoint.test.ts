@@ -1,5 +1,5 @@
 import './aa.init'
-import {beforeEach, describe} from 'mocha'
+import {describe} from 'mocha'
 import {BigNumber, Wallet} from "ethers";
 import {expect} from "chai";
 import {
@@ -17,15 +17,13 @@ import {
   createWalletOwner,
   fund,
   checkForGeth,
-  rethrow, tostr, WalletConstructor, calcGasUsage, objdump, tonumber, checkForBannedOps, ONE_ETH, TWO_ETH, getBalance
+  rethrow, tostr, WalletConstructor, calcGasUsage, checkForBannedOps, ONE_ETH, TWO_ETH, getBalance
 } from "./testutils";
-import {fillAndSign, DefaultsForUserOp} from "./UserOp";
+import {fillAndSign} from "./UserOp";
 import {UserOperation} from "./UserOperation";
 import {PopulatedTransaction} from "ethers/lib/ethers";
 import {ethers} from 'hardhat'
-import {toBuffer} from "ethereumjs-util";
-import {defaultAbiCoder, parseEther} from "ethers/lib/utils";
-import exp from "constants";
+import {parseEther} from "ethers/lib/utils";
 
 describe("EntryPoint", function () {
 
@@ -59,7 +57,7 @@ describe("EntryPoint", function () {
 
     describe('without stake', () => {
       it('should return no stake', async () => {
-        expect(await entryPoint.isStaked(addr, TWO_ETH)).to.eq(false)
+        expect(await entryPoint.isPaymasterStaked(addr, TWO_ETH)).to.eq(false)
       })
       it('should fail to unlock', async () => {
         await expect(entryPoint.unlockStake()).to.revertedWith('no stake')
@@ -70,7 +68,7 @@ describe("EntryPoint", function () {
         await entryPoint.addStake(2, {value: TWO_ETH})
       })
       it('should report "staked" state', async () => {
-        expect(await entryPoint.isStaked(addr, TWO_ETH)).to.eq(true)
+        expect(await entryPoint.isPaymasterStaked(addr, 0)).to.eq(true)
         const {stake, withdrawStake, withdrawBlock} = await entryPoint.getStakeInfo(addr)
         expect({stake, withdrawStake, withdrawBlock}).to.eql({
           stake: parseEther('2'),
@@ -78,10 +76,6 @@ describe("EntryPoint", function () {
           withdrawBlock: 0
         })
       })
-
-      function str(x: any) {
-        return JSON.stringify(x)
-      }
 
       it('should succeed to stake again', async () => {
         const {stake} = await entryPoint.getStakeInfo(addr)
@@ -98,7 +92,7 @@ describe("EntryPoint", function () {
           await entryPoint.unlockStake()
         })
         it('should report as "not staked"', async () => {
-          expect(await entryPoint.isStaked(addr, TWO_ETH)).to.eq(false)
+          expect(await entryPoint.isPaymasterStaked(addr, TWO_ETH)).to.eq(false)
         })
         it('should report unstake state', async () => {
           const withdrawBlock1 = await ethers.provider.getBlockNumber() + unstakeDelayBlocks
@@ -108,7 +102,7 @@ describe("EntryPoint", function () {
             withdrawStake: parseEther('3'),
             withdrawBlock: withdrawBlock1
           })
-          expect(await entryPoint.isStaked(addr, TWO_ETH)).to.eq(false)
+          expect(await entryPoint.isPaymasterStaked(addr, TWO_ETH)).to.eq(false)
         })
         it('should fail to withdraw before unlock timeout', async () => {
           await expect(entryPoint.withdrawStake(AddressZero)).to.revertedWith('Withdrawal is not due')
@@ -141,7 +135,7 @@ describe("EntryPoint", function () {
           })
 
           it('should report unstaked state', async () => {
-            expect(await entryPoint.isStaked(addr, TWO_ETH)).to.eq(false)
+            expect(await entryPoint.isPaymasterStaked(addr, TWO_ETH)).to.eq(false)
           })
           it('should fail to unlock again', async () => {
             await expect(entryPoint.unlockStake()).to.revertedWith('already pending')
@@ -310,42 +304,6 @@ describe("EntryPoint", function () {
         const stakeAfter = await entryPoint.getStakeInfo(wallet.address).then(info => info.stake)
         expect(balAfter).to.equal(balBefore, 'should pay from stake, not balance')
         let stakeUsed = stakeBefore.sub(stakeAfter)
-        expect(await ethers.provider.getBalance(redeemerAddress)).to.equal(stakeUsed)
-
-        await calcGasUsage(rcpt, entryPoint, redeemerAddress)
-      });
-
-      it('should revert operation if wallet withdraw its stake', async function () {
-        await wallet.addDeposit({value: ONE_ETH})
-        const withdrawSender = Wallet.createRandom().address
-        const withdraw = await entryPoint.populateTransaction.withdrawStake(withdrawSender).then(tx => tx.data!)
-        const execWithdraw = await wallet.populateTransaction.exec(entryPoint.address, withdraw).then(tx => tx.data!)
-        const execFromEntryPoint_withdraw = await wallet.populateTransaction.execFromEntryPoint(execWithdraw).then(tx => tx.data!)
-
-        const op = await fillAndSign({
-          sender: wallet.address,
-          callData: execFromEntryPoint_withdraw,
-          verificationGas: 1e6,
-          callGas: 1e6
-        }, walletOwner, entryPoint)
-        const redeemerAddress = Wallet.createRandom().address
-
-        //for estimateGas, must specify maxFeePerGas, otherwise our gas check fails
-        console.log('  == est gas=', await entryPoint.estimateGas.handleOps([op], redeemerAddress, {maxFeePerGas: 1e9}).then(tostr))
-
-        const stakeBefore = await entryPoint.getStakeInfo(wallet.address).then(info => info.stake)
-        const rcpt = await entryPoint.handleOps([op], redeemerAddress, {
-          maxFeePerGas: 1e9,
-          gasLimit: 1e7
-        }).then(t => t.wait())
-        //this is an attempt to withdraw. make sure it fails, and still that it was paid for
-
-        console.log('rcpt.gasUsed=', rcpt.gasUsed.toString(), rcpt.transactionHash)
-
-        const stakeAfter = await entryPoint.getStakeInfo(wallet.address).then(info => info.stake)
-        let stakeUsed = stakeBefore.sub(stakeAfter)
-        console.log('stake used=', stakeUsed)
-        console.log('stake left=', stakeAfter)
         expect(await ethers.provider.getBalance(redeemerAddress)).to.equal(stakeUsed)
 
         await calcGasUsage(rcpt, entryPoint, redeemerAddress)

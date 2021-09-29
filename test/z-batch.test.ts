@@ -28,6 +28,8 @@ import {defaultAbiCoder} from "ethers/lib/utils";
 
 describe("Batch gas testing", function () {
 
+  let once = true
+
   let ethersSigner = ethers.provider.getSigner();
   let entryPoint: EntryPoint
   let entryPointView: EntryPoint
@@ -271,4 +273,3 @@ describe("Batch gas testing", function () {
   }
 })
 
-let once = true
