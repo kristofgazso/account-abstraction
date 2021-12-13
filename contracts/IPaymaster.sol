@@ -20,6 +20,7 @@ interface IPaymaster {
     function verifyPaymasterUserOp(UserOperation calldata userOp, uint maxcost) external view returns (bytes memory context);
 
     // post-operation handler.
+    // @note: must verify sender is the entryPoint
     // @param mode
     //      opSucceeded - user operation succeeded.
     //      opReverted  - user op reverted. still has to pay for gas.
