@@ -45,8 +45,8 @@ library UserOperationLib {
     }
     }
 
-    function requiredPreFund(UserOperation calldata userOp, uint overhead) internal view returns (uint prefund) {
-        return (requiredGas(userOp) + overhead) * gasPrice(userOp);
+    function requiredPreFund(UserOperation calldata userOp) internal view returns (uint prefund) {
+        return requiredGas(userOp) * gasPrice(userOp);
     }
 
     function hasPaymaster(UserOperation calldata userOp) internal pure returns (bool) {
